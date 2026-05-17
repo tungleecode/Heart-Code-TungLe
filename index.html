@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Heart Code - Trái Tim Pha Lê</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:100%;height:100%;background:#000;overflow:hidden}
+    #bg{
+      position:fixed;top:0;left:0;width:100%;height:100%;
+      font-family:'Courier New',monospace;font-size:10px;line-height:1.6;
+      color:rgba(25,120,220,0.07);overflow:hidden;pointer-events:none;z-index:0;
+      padding:4px 8px;white-space:pre;
+    }
+    canvas{position:fixed;top:0;left:0;z-index:1}
+  </style>
+</head>
+<body>
+<div id="bg"></div>
+<canvas id="cv"></canvas>
+<script>
+(function(){
+"use strict";
+
+const S='<';
+const CLINES=[
+  S+'html>'+S+'head>'+S+'meta http-equiv="Content-Type" content="text/html; charset=UTF-8">',
+  S+'body>'+S+'script>',
+  '  var init = function () {',
+  '    var heartPosition = function (rad) {',
+  '      return [Math.pow(Math.sin(rad),3),',
+  '        -(15*Math.cos(rad)-5*Math.cos(2*rad)-2*Math.cos(3*rad)-Math.cos(4*rad))];',
+  '    };',
+  '    var scaleAndTranslate = function (pos,sx,sy,dx,dy) {',
+  '      return [dx+pos[0]*sx, dy+pos[1]*sy];',
+  '    };',
+  "    window.addEventListener('resize', function(){",
+  '      width=canvas.width=window.innerWidth;',
+  '      height=canvas.height=window.innerHeight;',
+  '    });',
+  '    var traceCount = mobile ? 20 : 50;',
+  '    var pointsOrigin = []; var i; var dr = mobile ? .1 : .05;',
+  '    for(i=0;i<Math.PI*2;i+=dr)',
+  '      pointsOrigin.push(scaleAndTranslate(heartPosition(i),210,13,0,0));',
+  '    var pulse = function(kx,ky){',
+  '      var count=Math.ceil(pointsOrigin.length*0.5);',
+  '      var i=0; while(count--){',
+  '        var next=targetPoints[~~(pointsOrigin.length*Math.random())];',
+  '        traces.push({vx:speed*Math.cos(angle),vy:speed*Math.sin(angle),',
+  '          life:10+Math.random()*100,position:next}); } };',
+  '  };  init();',
+  S+'/script>'+S+'/body>'+S+'/html>',
+];
+document.getElementById('bg').textContent=Array(70).fill(CLINES.join('\n')).join('\n');
+
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+ctx.lineCap='round';
+ctx.lineJoin='round';
+
+let W,H,CX,CY;
+function resize(){ W=cv.width=window.innerWidth; H=cv.height=window.innerHeight; CX=W/2; CY=H*0.48; }
+resize();
+window.addEventListener('resize',resize);
+
+function hXY(t){
+  return[
+    Math.pow(Math.sin(t),3)*1.03,
+    -(15*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))/16
+  ];
+}
+const HP_N=1200;
+const HP=[];
+for(let i=0;i<HP_N;i++) HP.push(hXY(i/HP_N*Math.PI*2));
+
+let HY_MIN=Infinity, HY_MAX=-Infinity;
+for(const[,hy] of HP){ if(hy<HY_MIN)HY_MIN=hy; if(hy>HY_MAX)HY_MAX=hy; }
+const HY_TIP=HY_MAX;
+
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+const smoothstep=t=>t*t*(3-2*t);
+const eio=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+
+const LEFT_EDGE=HP.filter(([hx])=>hx<0).sort((a,b)=>a[1]-b[1]);
+const RIGHT_EDGE=HP.filter(([hx])=>hx>0).sort((a,b)=>a[1]-b[1]);
+function edgePoint(side,u){
+  const arr=side<0?LEFT_EDGE:RIGHT_EDGE;
+  const x=clamp(u,0,1)*(arr.length-1);
+  const i=Math.floor(x);
+  const f=x-i;
+  const a=arr[i], b=arr[Math.min(arr.length-1,i+1)];
+  return [lerp(a[0],b[0],f),lerp(a[1],b[1],f)];
+}
+
+function glowAt(x,y,r,a,r8=255,g8=255,b8=255){
+  if(a<0.012||r<0.5) return;
+  const g=ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,`rgba(${r8},${g8},${b8},${a})`);
+  g.addColorStop(0.4,`rgba(${r8},${g8},${b8},${a*0.2})`);
+  g.addColorStop(1,`rgba(${r8},${g8},${b8},0)`);
+  ctx.fillStyle=g;
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fill();
+}
+
+function BASE_SC(){ return Math.min(W,H)*0.272; }
+
+let pT=0;
+function pulse(){
+  const t=pT%1; let p=0;
+  if(t<0.08) p=t/0.08;
+  else if(t<0.18) p=1-(t-0.08)/0.10;
+  else if(t<0.25) p=(t-0.18)/0.07*0.42;
+  else if(t<0.35) p=0.42-(t-0.25)/0.10*0.42;
+  return 1+p*0.055;
+}
+
+let rotY=0;
+function proj(hx,hy,sc){
+  const c=Math.cos(rotY), s=Math.sin(rotY);
+  const x2=hx*c, z=hx*s;
+  const fov=5;
+  const k=fov/(fov+z*0.18);
+  return [CX+x2*k*sc,CY+hy*k*sc];
+}
+
+function proj3(hx,hy,hz,sc){
+  const c=Math.cos(rotY), s=Math.sin(rotY);
+  const x2=hx*c+hz*s;
+  const z2=hz*c-hx*s;
+  const fov=4.8;
+  const k=fov/(fov+z2*0.20);
+  return [CX+x2*k*sc,CY+hy*k*sc,k];
+}
+
+function classifyHP(hx,hy){
+  if(hy>0.55) return 'bottom';
+  if(hy>0.15) return 'lower';
+  if(hy<-0.35) return 'top';
+  return 'side';
+}
+
+const N_STRANDS=128;
+const strands=[];
+for(let i=0;i<N_STRANDS;i++){
+  const hpIdx=Math.floor(i/N_STRANDS*HP_N);
+  const[hx,hy]=HP[hpIdx];
+  const cls=classifyHP(hx,hy);
+  let tailLen,amp,wCycles,alpha;
+  switch(cls){
+    case 'bottom':
+      tailLen=0.55+Math.random()*0.70;
+      amp=10+Math.random()*16;
+      wCycles=0.35+Math.random()*0.45;
+      alpha=0.035+Math.random()*0.050;
+      break;
+    case 'lower':
+      tailLen=2.0+Math.random()*1.8;
+      amp=18+Math.random()*30;
+      wCycles=0.38+Math.random()*0.50;
+      alpha=0.045+Math.random()*0.070;
+      break;
+    case 'side':
+      tailLen=4.6+Math.random()*3.6;
+      amp=36+Math.random()*56;
+      wCycles=0.35+Math.random()*0.55;
+      alpha=0.08+Math.random()*0.12;
+      break;
+    case 'top':
+      tailLen=2.2+Math.random()*2.0;
+      amp=34+Math.random()*52;
+      wCycles=0.32+Math.random()*0.48;
+      alpha=0.08+Math.random()*0.11;
+      break;
+  }
+
+  const nBeads=6+Math.floor(Math.random()*8);
+  const beads=Array.from({length:nBeads},()=>({
+    pos:Math.random(),
+    spd:0.00030+Math.random()*0.00055,
+    sz:0.8+Math.random()*2.7,
+    br:0.38+Math.random()*0.42,
+  }));
+  const streams=Array.from({length:1+Math.floor(Math.random()*2)},()=>({
+    pos:Math.random(),
+    spd:0.00022+Math.random()*0.00040,
+    len:0.070+Math.random()*0.090,
+    br:0.24+Math.random()*0.28,
+  }));
+
+  strands.push({
+    hpIdx,hx,hy,cls,
+    phase:i/N_STRANDS*Math.PI*2+Math.random()*0.8,
+    amp,wCycles,alpha,
+    animSpd:0.00007+Math.random()*0.00013,
+    tailLen,beads,streams,t:Math.random()*2000,
+  });
+}
+
+const N_FLOW=900;
+const flow=[];
+function mkFlow(sc){
+  const hpIdx=Math.floor(Math.random()*HP_N);
+  const[hx,hy]=HP[hpIdx];
+  const[tx,ty]=proj(hx,hy,sc);
+  const[tipX,tipY]=proj(0,HY_TIP,sc);
+  return{
+    sx:tipX+(Math.random()-0.5)*18,
+    sy:tipY,
+    tx,ty,
+    t:Math.random(),
+    sp:0.0009+Math.random()*0.0015,
+    sz:0.38+Math.random()*1.25,
+    gl:0.14+Math.random()*0.26,
+  };
+}
+
+const N_SPARKS=720;
+const sparks=[];
+function mkSpark(sc){
+  const fromHair=Math.random()<0.46;
+  let ox,oy,vx,vy;
+  if(fromHair){
+    const side=Math.random()<0.5?-1:1;
+    ox=CX+side*sc*(0.55+Math.random()*2.55);
+    oy=CY+sc*(-0.26+Math.random()*0.92);
+    vx=side*(0.010+Math.random()*0.045);
+    vy=0.010+Math.random()*0.050;
+  }else{
+    const hpIdx=Math.floor(Math.random()*HP_N);
+    const[hx,hy]=HP[hpIdx];
+    [ox,oy]=proj(hx,hy,sc);
+    vx=(Math.random()-0.5)*0.045;
+    vy=0.010+Math.random()*0.050;
+  }
+  return{
+    x:ox+(Math.random()-0.5)*14,
+    y:oy+(Math.random()-0.5)*14,
+    vx, vy,
+    ay:0.00055,
+    life:0,
+    maxLife:220+Math.random()*360,
+    sz:0.36+Math.random()*(fromHair?1.45:1.20),
+    br:0.24+Math.random()*0.42,
+  };
+}
+
+const N_HEART_DROPS=500;
+const heartDrops=[];
+for(let i=0;i<N_HEART_DROPS;i++){
+  heartDrops.push({
+    side:Math.random()<0.5?-1:1,
+    seed:Math.random(),
+    lane:0.93+Math.random()*0.18,
+    speed:0.035+Math.random()*0.045,
+    sz:0.95+Math.random()*1.65,
+    br:0.44+Math.random()*0.44,
+    ph:Math.random()*Math.PI*2,
+  });
+}
+
+function drawBaseWaves(sc,tipX,tipY){
+  const ringY=tipY+sc*0.060;
+  ctx.save();
+  ctx.translate(tipX,ringY);
+  for(let n=0;n<4;n++){
+    const rx=sc*(1.06+n*0.18);
+    const ry=sc*(0.070+n*0.012);
+    ctx.beginPath();
+    ctx.ellipse(0,0,rx,ry,0,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(225,240,255,${0.050-n*0.007})`;
+    ctx.lineWidth=0.55+n*0.08;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const streams=32;
+  for(let n=0;n<streams;n++){
+    const side=n%2===0?-1:1;
+    const spread=n/(streams-1);
+    const bias=(spread-0.5)*2;
+    const len=sc*(1.00+Math.abs(bias)*2.20+((n*17)%13)/13*0.58);
+    const startX=tipX+(Math.sin(n*2.11)*sc*0.055);
+    const startY=ringY+Math.cos(n*1.7)*sc*0.018;
+    const endX=startX+side*len*(0.62+Math.abs(bias)*0.38);
+    const endY=startY+sc*(0.06+Math.abs(bias)*0.30+((n*23)%11)/11*0.16);
+    const c1x=startX+side*sc*(0.30+Math.abs(bias)*0.34);
+    const c1y=startY-sc*(0.05+0.06*Math.sin(n));
+    const c2x=lerp(startX,endX,0.62)+side*sc*(0.22*Math.sin(n*0.7+GT*8));
+    const c2y=lerp(startY,endY,0.74)+sc*(0.16+0.16*Math.cos(n*0.4));
+    ctx.beginPath();
+    for(let i=0;i<=90;i++){
+      const t=i/90, iv=1-t;
+      let x=iv*iv*iv*startX+3*iv*iv*t*c1x+3*iv*t*t*c2x+t*t*t*endX;
+      let y=iv*iv*iv*startY+3*iv*iv*t*c1y+3*iv*t*t*c2y+t*t*t*endY;
+      const wave=Math.sin(t*Math.PI*(1.5+Math.abs(bias)*0.55)+GT*5+n)*sc*(0.018+Math.abs(bias)*0.012)*Math.sin(t*Math.PI);
+      x+=side*wave*0.42;
+      y+=wave;
+      if(i===0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=`rgba(218,238,255,${0.020+0.026*(1-Math.abs(bias))*(((n*19)%9)/9+0.45)})`;
+    ctx.lineWidth=0.30+0.42*((n*29)%17)/17;
+    ctx.stroke();
+  }
+
+  const waves=8;
+  for(let n=0;n<waves;n++){
+    const span=W*(0.48+n*0.060);
+    const startX=CX-span/2;
+    const endX=CX+span/2;
+    const y0=ringY+sc*(0.006+n*0.010);
+    const amp=sc*(0.018+n*0.006);
+    const freq=1.4+n*0.12;
+    const phase=GT*(4+n*0.3)+n*0.7;
+    ctx.beginPath();
+    for(let i=0;i<=150;i++){
+      const u=i/150;
+      const x=lerp(startX,endX,u);
+      const spread=Math.sin(Math.PI*u);
+      const y=y0+Math.sin(u*Math.PI*freq+phase)*amp*spread;
+      if(i===0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=`rgba(210,230,255,${0.018+n*0.003})`;
+    ctx.lineWidth=0.24+n*0.035;
+    ctx.stroke();
+  }
+}
+
+let GT=0;
+function draw(ts){
+  GT+=0.000075;
+  pT+=0.00105;
+  rotY=Math.sin(ts*0.000085)*0.30;
+  const waterT=ts*0.001;
+
+  const sc=BASE_SC()*pulse();
+  const[TipX,TipY]=proj(0,HY_TIP,sc);
+
+  while(flow.length<N_FLOW) flow.push(mkFlow(sc));
+  while(sparks.length<N_SPARKS) sparks.push(mkSpark(sc));
+
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgba(0,0,0,0.060)';
+  ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+
+  drawBaseWaves(sc,TipX,TipY);
+
+  ctx.globalCompositeOperation='source-over';
+
+  for(let k=0;k<flow.length;k++){
+    const p=flow[k];
+    p.t+=p.sp;
+    if(p.t>=1){ flow[k]=mkFlow(sc); continue; }
+    const e=eio(p.t);
+    const x=lerp(p.sx,p.tx,e);
+    const y=lerp(p.sy,p.ty,e);
+    const a=Math.sin(p.t*Math.PI)*p.gl;
+    if(a<0.03) continue;
+    ctx.beginPath();
+    ctx.arc(x,y,p.sz*0.72,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${a})`;
+    ctx.fill();
+    if(a>0.36 && k%10===0) glowAt(x,y,p.sz*5.0,a*0.18,220,235,255);
+  }
+
+  for(const s of strands){
+    s.t+=s.animSpd;
+    const[EX,EY]=proj(s.hx,s.hy,sc);
+
+    let odx=EX-CX, ody=EY-CY;
+    const ol=Math.sqrt(odx*odx+ody*ody)||1;
+    odx/=ol; ody/=ol;
+
+    let wdx,wdy;
+    const sideSign=s.hx<0?-1:s.hx>0?1:(Math.sin(s.phase)<0?-1:1);
+    switch(s.cls){
+      case 'side':
+        ody=Math.max(ody,0.10);
+        {const nl=Math.sqrt(odx*odx+ody*ody)||1; odx/=nl; ody/=nl;}
+        wdx=-ody; wdy=odx;
+        break;
+      case 'lower':
+        ody=Math.max(ody,0.42);
+        {const nl=Math.sqrt(odx*odx+ody*ody)||1; odx/=nl; ody/=nl;}
+        wdx=-ody; wdy=odx;
+        break;
+      case 'bottom':
+        odx=sideSign*0.55; ody=0.83;
+        wdx=-ody; wdy=odx;
+        break;
+      case 'top':
+        odx=sideSign*(0.78+Math.abs(s.hx)*0.18);
+        ody=0.24+0.10*Math.abs(Math.sin(s.phase));
+        {const nl=Math.sqrt(odx*odx+ody*ody)||1; odx/=nl; ody/=nl;}
+        wdx=-ody; wdy=odx;
+        break;
+      default:
+        wdx=-ody; wdy=odx;
+    }
+
+    const tailPx=s.tailLen*sc;
+    const TOTAL=130;
+    const pts=[];
+    const endX=EX+odx*tailPx+sideSign*sc*(s.cls==='top'?0.88:s.cls==='side'?0.56:0.10);
+    const endY=EY+ody*tailPx+sc*(s.cls==='top'?0.58:s.cls==='side'?0.56:s.cls==='lower'?0.26:0.14);
+    const cloud=s.cls==='top'||s.cls==='side';
+    const c1x=EX+sideSign*sc*(s.cls==='top'?0.72:s.cls==='side'?0.58:0.18)
+      + (cloud?sideSign*sc*0.16*Math.sin(waterT*0.92+s.phase):0);
+    const c1y=EY-sc*(s.cls==='top'?0.42:s.cls==='side'?0.30:0.03)
+      + (cloud?sc*0.13*Math.sin(waterT*1.10+s.phase*1.7):0);
+    const c2x=lerp(EX,endX,0.58)+sideSign*sc*(0.52+0.30*Math.sin(s.phase))
+      + (cloud?sideSign*sc*0.22*Math.sin(waterT*0.74+s.phase*1.3):0);
+    const c2y=lerp(EY,endY,0.70)+sc*(s.cls==='top'?0.34:s.cls==='side'?0.24:0.16)
+      + (cloud?sc*0.16*Math.cos(waterT*0.86+s.phase):0);
+
+    ctx.beginPath();
+    let started=false;
+    for(let j=0;j<=TOTAL;j++){
+      const tt=j/TOTAL;
+      const iv=1-tt;
+      let x=iv*iv*iv*EX+3*iv*iv*tt*c1x+3*iv*tt*tt*c2x+tt*tt*tt*endX;
+      let y=iv*iv*iv*EY+3*iv*iv*tt*c1y+3*iv*tt*tt*c2y+tt*tt*tt*endY;
+      const env=smoothstep(clamp(tt*2.6,0,1))*(1-smoothstep(clamp((tt-0.92)*8,0,1))*0.35);
+      const wave=s.amp*0.78*env*Math.sin(s.wCycles*Math.PI*2*tt+waterT*1.35+s.phase);
+      const silk=Math.sin(tt*Math.PI)*sc*(s.cls==='top'?0.17:s.cls==='side'?0.13:0.050)*Math.sin(s.phase+waterT*1.05);
+      const mountain=s.cls==='top'||s.cls==='side';
+      const lift1=Math.exp(-Math.pow((tt-0.18)/0.16,2));
+      const drop1=Math.exp(-Math.pow((tt-0.43)/0.18,2));
+      const lift2=Math.exp(-Math.pow((tt-0.68)/0.14,2));
+      const drop2=Math.exp(-Math.pow((tt-0.92)/0.16,2));
+      const hairProfile=mountain
+        ? sc*(-0.52*lift1+0.34*drop1-0.32*lift2+0.24*drop2)
+          + sc*0.10*Math.sin(waterT*1.25+s.phase+tt*Math.PI*3.2)*Math.sin(tt*Math.PI)
+        : 0;
+      const horizontalSway=mountain
+        ? sideSign*sc*(
+          0.095*Math.sin(tt*Math.PI*2.7+s.phase+waterT*0.85)+
+          0.055*Math.sin(tt*Math.PI*5.1-waterT*1.45+s.phase*0.5)
+        )
+        : 0;
+      x+=wdx*wave+sideSign*silk+horizontalSway;
+      y+=wdy*wave+hairProfile+tt*tt*sc*(s.cls==='bottom'?0.16:0.10);
+      pts.push([x,y]);
+      if(!started){ ctx.moveTo(x,y); started=true; }
+      else ctx.lineTo(x,y);
+    }
+
+    const aPulse=0.45+0.55*Math.abs(Math.sin(s.t*Math.PI*1.2+s.phase));
+    const thickness=0.82+0.18*Math.sin(GT*18+s.phase)+0.10*Math.sin(GT*31+s.phase*1.7);
+    ctx.strokeStyle=`rgba(180,215,255,${s.alpha*aPulse*0.30})`;
+    ctx.lineWidth=(s.cls==='top'?1.55:1.25)*thickness;
+    ctx.stroke();
+    ctx.strokeStyle=`rgba(238,248,255,${s.alpha*aPulse*0.34})`;
+    ctx.lineWidth=(s.cls==='top'?0.48:0.40)*thickness;
+    ctx.stroke();
+
+    ctx.globalCompositeOperation='lighter';
+    for(const st of s.streams){
+      st.pos=(st.pos+st.spd*2.25)%1;
+      const start=Math.floor(st.pos*pts.length);
+      const count=Math.min(pts.length-start,Math.max(5,Math.floor(st.len*pts.length)));
+      if(count<5) continue;
+      ctx.beginPath();
+      let active=false;
+      for(let m=0;m<count;m++){
+        const idx=start+m;
+        const [px,py]=pts[idx];
+        if(!active){ ctx.moveTo(px,py); active=true; }
+        else ctx.lineTo(px,py);
+      }
+      const streamA=st.br*aPulse*(s.cls==='bottom'?0.12:0.24);
+      ctx.strokeStyle=`rgba(235,248,255,${streamA})`;
+      ctx.lineWidth=(s.cls==='top'?0.95:0.78)*(0.55+st.br);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation='source-over';
+
+    for(const b of s.beads){
+      b.pos=(b.pos+b.spd*1.65)%1;
+      const idx=Math.min(Math.floor(b.pos*pts.length),pts.length-1);
+      const[bx,by]=pts[idx];
+      const ba=b.br*aPulse;
+      if(ba>0.62 && idx%11===0) glowAt(bx,by,b.sz*6.2,ba*0.20,225,238,255);
+      ctx.beginPath();
+      ctx.arc(bx,by,b.sz*0.48,0,Math.PI*2);
+      ctx.fillStyle=`rgba(255,255,255,${ba*0.58})`;
+      ctx.fill();
+    }
+  }
+
+  for(let k=0;k<sparks.length;k++){
+    const sp=sparks[k];
+    sp.x+=sp.vx; sp.y+=sp.vy; sp.vy+=sp.ay; sp.life++;
+    if(sp.life>=sp.maxLife){ sparks[k]=mkSpark(sc); continue; }
+    const a=(1-sp.life/sp.maxLife)*sp.br;
+    if(a<0.04) continue;
+    if(k%13===0) glowAt(sp.x,sp.y,sp.sz*5.0,a*0.16,225,235,255);
+    ctx.beginPath();
+    ctx.arc(sp.x,sp.y,sp.sz*0.54,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${a*0.62})`;
+    ctx.fill();
+  }
+
+  ctx.globalCompositeOperation='lighter';
+  for(const d of heartDrops){
+    const u=(d.seed+waterT*d.speed)%1;
+    const [ehx,ehy]=edgePoint(d.side,smoothstep(u));
+    const outward=smoothstep(clamp((u-0.72)/0.28,0,1));
+    const lane=d.lane+0.045*Math.sin(waterT*1.1+d.ph+u*Math.PI*2);
+    const hx=ehx*lane+d.side*outward*(0.05+0.06*d.lane);
+    const hy=ehy+0.020*Math.sin(u*Math.PI);
+    const jitter=0.018*Math.sin(waterT*1.7+d.ph+u*Math.PI*5);
+    const[x,y]=proj(hx+jitter*d.side,hy,sc);
+    const topLobe=hy<-0.35;
+    if(topLobe && ((d.seed*997)%1)>0.42) continue;
+    const dotA=(topLobe?0.34:0.58)*d.br*Math.sin(u*Math.PI);
+    if(dotA<0.05) continue;
+    ctx.beginPath();
+    ctx.arc(x,y,d.sz*(topLobe?0.58:0.96),0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${dotA})`;
+    ctx.fill();
+    if(!topLobe && d.seed<0.20) glowAt(x,y,d.sz*6.4,dotA*0.18,225,238,255);
+  }
+  ctx.globalCompositeOperation='source-over';
+
+  glowAt(TipX,TipY,sc*0.28,0.40,140,190,255);
+  glowAt(TipX,TipY,sc*0.09,0.72,220,235,255);
+  glowAt(TipX,TipY,sc*0.030,0.95);
+  ctx.beginPath();
+  ctx.arc(TipX,TipY,2.2,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,255,255,0.98)';
+  ctx.fill();
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

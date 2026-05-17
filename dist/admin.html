@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Admin - Heart Code</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;background:#06101d;color:#e9f6ff;font-family:Arial,sans-serif;display:grid;place-items:center;padding:22px}
+.panel{width:min(720px,100%);background:rgba(7,20,36,.86);border:1px solid rgba(129,205,255,.22);border-radius:12px;padding:20px;box-shadow:0 24px 70px rgba(0,0,0,.38)}
+h1{font-size:22px;margin:0 0 16px}p{color:#a9c8df;line-height:1.5;margin:8px 0 18px}
+label{display:block;margin:14px 0 7px;color:#cdeaff;font-size:13px}
+input,button{font:inherit}input{width:100%;border:1px solid rgba(130,205,255,.28);border-radius:8px;background:#081827;color:#fff;padding:11px 12px;outline:none}
+input:focus{border-color:rgba(145,220,255,.72)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.actions{display:flex;gap:10px;align-items:center;margin-top:18px;flex-wrap:wrap}
+button{border:0;border-radius:8px;background:#4aa3ff;color:#00182a;font-weight:700;padding:11px 14px;cursor:pointer}
+button.secondary{background:rgba(145,205,255,.12);color:#dff5ff;border:1px solid rgba(145,205,255,.2)}
+button:disabled{opacity:.5;cursor:wait}
+.preview{margin-top:12px;display:grid;grid-template-columns:110px 1fr;gap:12px;align-items:center}
+.heart{width:110px;aspect-ratio:1;background:#102237;clip-path:path("M 55 96 C 18 62 0 43 8 21 C 15 1 39 4 55 24 C 71 4 95 1 102 21 C 110 43 92 62 55 96 Z");overflow:hidden}
+.heart img{width:100%;height:100%;object-fit:cover}
+.status{min-height:22px;color:#9edcff;font-size:13px}.warn{color:#ffdca6;font-size:13px}.ok{color:#9ff5bd}.err{color:#ff9f9f}
+@media(max-width:640px){body{padding:12px}.panel{padding:16px}.grid{grid-template-columns:1fr}.preview{grid-template-columns:82px 1fr}.heart{width:82px}h1{font-size:19px}}
+</style>
+</head>
+<body>
+<main class="panel">
+  <h1>Admin Heart Code</h1>
+  <p>Trang này cập nhật ảnh trong trái tim và tên bản quyền bằng cách commit vào GitHub. Sau khi lưu, Vercel sẽ tự deploy lại nếu repo đang kết nối với Vercel.</p>
+  <p class="warn">Token chỉ dùng trong trình duyệt lúc bấm lưu, không được ghi vào file. Nên dùng GitHub fine-grained token chỉ có quyền Contents: Read/Write cho repo này.</p>
+
+  <div class="grid">
+    <div>
+      <label for="owner">GitHub owner</label>
+      <input id="owner" value="tungleecode" autocomplete="off">
+    </div>
+    <div>
+      <label for="repo">Repository</label>
+      <input id="repo" value="Heart-Code-TungLe" autocomplete="off">
+    </div>
+  </div>
+  <div class="grid">
+    <div>
+      <label for="branch">Branch</label>
+      <input id="branch" value="main" autocomplete="off">
+    </div>
+    <div>
+      <label for="token">GitHub token</label>
+      <input id="token" type="password" placeholder="github_pat_..." autocomplete="off">
+    </div>
+  </div>
+
+  <label for="copyright">Tên bản quyền</label>
+  <input id="copyright" placeholder="Ví dụ: Lê Thanh Tùng: Trái Tim Mã Nguồn">
+
+  <label for="image">Ảnh thay vào trái tim</label>
+  <input id="image" type="file" accept="image/*">
+
+  <div class="preview">
+    <div class="heart"><img id="preview" alt=""></div>
+    <div>
+      <div class="status" id="status">Sẵn sàng.</div>
+      <p>Ảnh sẽ được lưu thành <code>dist/heart-photo.jpg</code>; cấu hình nằm ở <code>dist/config.json</code>.</p>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="save">Lưu lên GitHub</button>
+    <button class="secondary" id="load" type="button">Tải cấu hình hiện tại</button>
+  </div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const status=$('status'),preview=$('preview'),fileInput=$('image');
+const CONFIG_PATH='dist/config.json';
+const IMAGE_PATH='dist/heart-photo.jpg';
+let currentConfig={image:'img1.jpg',copyright:'Lê Thanh Tùng: Trái Tim Mã Nguồn'};
+
+function setStatus(text,type=''){
+  status.className='status '+type;
+  status.textContent=text;
+}
+function bytesToBase64(bytes){
+  let binary='';
+  const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk){
+    binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
+  }
+  return btoa(binary);
+}
+async function api(path,opts={}){
+  const owner=$('owner').value.trim(),repo=$('repo').value.trim(),token=$('token').value.trim();
+  if(!owner||!repo||!token)throw new Error('Thiếu owner/repo/token.');
+  const [filePath,query='']=path.split('?');
+  const encodedPath=filePath.split('/').map(encodeURIComponent).join('/');
+  const res=await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}${query?'?'+query:''}`,{
+    ...opts,
+    headers:{
+      Accept:'application/vnd.github+json',
+      Authorization:`Bearer ${token}`,
+      'X-GitHub-Api-Version':'2022-11-28',
+      ...(opts.headers||{})
+    }
+  });
+  if(!res.ok){
+    const body=await res.text();
+    throw new Error(`${res.status} ${res.statusText}: ${body.slice(0,220)}`);
+  }
+  return res.json();
+}
+async function getSha(path){
+  try{
+    const data=await api(path+'?ref='+encodeURIComponent($('branch').value.trim()));
+    return data.sha;
+  }catch(error){
+    if(String(error.message).startsWith('404'))return undefined;
+    throw error;
+  }
+}
+async function putFile(path,content,message){
+  const sha=await getSha(path);
+  return api(path,{
+    method:'PUT',
+    body:JSON.stringify({
+      message,
+      content,
+      sha,
+      branch:$('branch').value.trim()
+    })
+  });
+}
+async function loadCurrent(){
+  setStatus('Đang tải config...');
+  const data=await fetch('config.json?ts='+Date.now(),{cache:'no-store'}).then(r=>r.json());
+  currentConfig=data;
+  $('copyright').value=data.copyright||'';
+  preview.src=(data.image||'img1.jpg')+'?ts='+Date.now();
+  setStatus('Đã tải cấu hình hiện tại.','ok');
+}
+fileInput.addEventListener('change',()=>{
+  const file=fileInput.files[0];
+  if(file)preview.src=URL.createObjectURL(file);
+});
+$('load').addEventListener('click',()=>loadCurrent().catch(e=>setStatus(e.message,'err')));
+$('save').addEventListener('click',async()=>{
+  const btn=$('save');
+  try{
+    btn.disabled=true;
+    const copyright=$('copyright').value.trim()||'Lê Thanh Tùng: Trái Tim Mã Nguồn';
+    const updatedAt=new Date().toISOString();
+    const file=fileInput.files[0];
+    setStatus('Đang chuẩn bị dữ liệu...');
+
+    if(file){
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      await putFile(IMAGE_PATH,bytesToBase64(bytes),`Update heart photo ${updatedAt}`);
+    }
+
+    const config={
+      image:file?'heart-photo.jpg':(currentConfig.image||'img1.jpg'),
+      copyright,
+      updatedAt
+    };
+    await putFile(CONFIG_PATH,btoa(unescape(encodeURIComponent(JSON.stringify(config,null,2)))),`Update site config ${updatedAt}`);
+    setStatus('Đã lưu. Đợi Vercel deploy lại rồi refresh web chính.', 'ok');
+  }catch(error){
+    setStatus(error.message,'err');
+  }finally{
+    btn.disabled=false;
+  }
+});
+loadCurrent().catch(()=>{});
+</script>
+</body>
+</html>

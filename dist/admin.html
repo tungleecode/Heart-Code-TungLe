@@ -165,22 +165,26 @@ $('save').addEventListener('click',async()=>{
   btn.disabled=true;
   const copyright=$('copyright').value.trim()||DEFAULT_CONFIG.copyright;
   const image=imgReady?exportImage():(config.image||DEFAULT_CONFIG.image);
-  config={image,copyright,updatedAt:new Date().toISOString()};
+  const previousImage=config.image||DEFAULT_CONFIG.image;
+  const localConfig={image,copyright,updatedAt:new Date().toISOString()};
   try{
     setStatus('Đang lưu...');
     const response=await fetch('/api/save',{
       method:'POST',
       headers:{'content-type':'application/json'},
-      body:JSON.stringify({copyright,image:imgReady?image:null,currentImage:config.image})
+      body:JSON.stringify({copyright,image:imgReady?image:null,currentImage:previousImage})
     });
-    if(!response.ok)throw new Error((await response.json()).error||'API chưa sẵn sàng.');
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.error||'API chưa sẵn sàng.');
+    config={...localConfig,...(result.config||{})};
     localStorage.setItem(STORAGE_KEY,JSON.stringify(config));
-    setPreview(image);
+    setPreview(imgReady?image:(config.image||image));
     setStatus('Đã lưu lên server. Refresh trang chính để thấy thay đổi.','ok');
   }catch(error){
+    config=localConfig;
     localStorage.setItem(STORAGE_KEY,JSON.stringify(config));
     setPreview(image);
-    setStatus('Đã lưu trên trình duyệt này. Muốn lưu cho mọi người, cấu hình GITHUB_TOKEN cho /api/save.','ok');
+    setStatus('Chỉ lưu tạm trên máy này. Để mọi người thấy, cần cấu hình GITHUB_TOKEN trên server.','err');
   }finally{
     btn.disabled=false;
   }

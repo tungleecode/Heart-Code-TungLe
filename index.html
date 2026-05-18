@@ -30,15 +30,23 @@
 (function(){
 "use strict";
 
+const DEFAULT_CONFIG={image:'img1.jpg',copyright:'Lê Thanh Tùng: Trái Tim Mã Nguồn',updatedAt:'default'};
 const savedConfig=(()=>{try{return JSON.parse(localStorage.getItem('heartCodeConfig')||'null')||{};}catch{return {};}})();
 const wm=document.getElementById('wm');
 const userPhoto=document.getElementById('userPhotoImg');
-if(savedConfig.copyright){
+function applyConfig(nextConfig){
+  const config={...DEFAULT_CONFIG,...(nextConfig||{})};
   wm.textContent='';
   const dot=document.createElement('i');
-  wm.append(dot,document.createTextNode(savedConfig.copyright));
+  wm.append(dot,document.createTextNode(config.copyright));
+  const sep=config.image.includes('?')?'&':'?';
+  userPhoto.src=config.updatedAt&&config.updatedAt!=='default'?config.image+sep+'v='+encodeURIComponent(config.updatedAt):config.image;
 }
-userPhoto.src=savedConfig.image||'img1.jpg';
+applyConfig(savedConfig);
+fetch('config.json?ts='+Date.now(),{cache:'no-store'})
+  .then(response=>response.ok?response.json():null)
+  .then(config=>{if(config)applyConfig(config);})
+  .catch(()=>{});
 
 const S='<';
 const CLINES=[

@@ -39,6 +39,10 @@ function applyConfig(nextConfig){
   wm.textContent='';
   const dot=document.createElement('i');
   wm.append(dot,document.createTextNode(config.copyright));
+  if(config.image.startsWith('data:')){
+    userPhoto.src=config.image;
+    return;
+  }
   const sep=config.image.includes('?')?'&':'?';
   userPhoto.src=config.updatedAt&&config.updatedAt!=='default'?config.image+sep+'v='+encodeURIComponent(config.updatedAt):config.image;
 }

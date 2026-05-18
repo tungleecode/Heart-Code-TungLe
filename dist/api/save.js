@@ -23,6 +23,11 @@ function normalizeBase64Image(image) {
   return image.slice(comma + 1);
 }
 
+function normalizeCurrentImage(image) {
+  if (!image || typeof image !== 'string' || image.startsWith('data:')) return 'heart-photo.jpg';
+  return image;
+}
+
 async function github(path, options = {}) {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (!token) throw new Error('Server chưa cấu hình GITHUB_TOKEN.');
@@ -81,7 +86,7 @@ module.exports = async function handler(req, res) {
     const imageBase64 = normalizeBase64Image(body.image);
     const branch = process.env.GITHUB_BRANCH || DEFAULT_BRANCH;
     const updatedAt = new Date().toISOString();
-    const image = imageBase64 ? 'heart-photo.jpg' : String(body.currentImage || 'img1.jpg');
+    const image = imageBase64 ? 'heart-photo.jpg' : normalizeCurrentImage(body.currentImage);
 
     if (imageBase64) {
       await putFiles(IMAGE_PATHS, imageBase64, `Update heart photo ${updatedAt}`, branch);

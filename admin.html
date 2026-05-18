@@ -179,7 +179,7 @@ $('save').addEventListener('click',async()=>{
     config={...localConfig,...(result.config||{})};
     localStorage.setItem(STORAGE_KEY,JSON.stringify(config));
     setPreview(imgReady?image:(config.image||image));
-    setStatus('Đã lưu lên server. Refresh trang chính để thấy thay đổi.','ok');
+    setStatus('Đã lưu lên GitHub. Đợi Vercel deploy xong rồi refresh trang chính.','ok');
   }catch(error){
     config=localConfig;
     localStorage.setItem(STORAGE_KEY,JSON.stringify(config));

@@ -1,8 +1,14 @@
 const DEFAULT_OWNER = 'tungleecode';
 const DEFAULT_REPO = 'Heart-Code-TungLe';
 const DEFAULT_BRANCH = 'main';
-const CONFIG_PATH = process.env.CONFIG_PATH || 'dist/config.json';
-const IMAGE_PATH = process.env.IMAGE_PATH || 'dist/heart-photo.jpg';
+const CONFIG_PATHS = (process.env.CONFIG_PATHS || process.env.CONFIG_PATH || 'config.json,dist/config.json')
+  .split(',')
+  .map((path) => path.trim())
+  .filter(Boolean);
+const IMAGE_PATHS = (process.env.IMAGE_PATHS || process.env.IMAGE_PATH || 'heart-photo.jpg,dist/heart-photo.jpg')
+  .split(',')
+  .map((path) => path.trim())
+  .filter(Boolean);
 
 function send(res, status, data) {
   res.statusCode = status;
@@ -58,6 +64,13 @@ async function putFile(path, content, message, branch) {
   });
 }
 
+async function putFiles(paths, content, message, branch) {
+  const uniquePaths = [...new Set(paths)];
+  for (const path of uniquePaths) {
+    await putFile(path, content, message, branch);
+  }
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
   try {
@@ -71,12 +84,12 @@ module.exports = async function handler(req, res) {
     const image = imageBase64 ? 'heart-photo.jpg' : String(body.currentImage || 'img1.jpg');
 
     if (imageBase64) {
-      await putFile(IMAGE_PATH, imageBase64, `Update heart photo ${updatedAt}`, branch);
+      await putFiles(IMAGE_PATHS, imageBase64, `Update heart photo ${updatedAt}`, branch);
     }
 
     const config = { image, copyright, updatedAt };
     const configBase64 = Buffer.from(JSON.stringify(config, null, 2), 'utf8').toString('base64');
-    await putFile(CONFIG_PATH, configBase64, `Update site config ${updatedAt}`, branch);
+    await putFiles(CONFIG_PATHS, configBase64, `Update site config ${updatedAt}`, branch);
     return send(res, 200, { ok: true, config });
   } catch (error) {
     return send(res, 500, { error: error.message || 'Không lưu được cấu hình.' });
